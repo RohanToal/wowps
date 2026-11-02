@@ -26,8 +26,8 @@ Invoke-Main {
     }
 
     Write-Info 'Starting the server...'
-    & docker compose up -d --no-build --remove-orphans | Out-Host
-    if ($LASTEXITCODE -ne 0) {
+    $code = Invoke-NativeCode -File 'docker' -Arguments @('compose', 'up', '-d', '--no-build', '--remove-orphans')
+    if ($code -ne 0) {
         Show-FailedOneshots
         Fail "The server could not start. See the messages above, and 'Troubleshooting' in the README."
     }

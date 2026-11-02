@@ -49,13 +49,26 @@ function Invoke-Main([scriptblock]$Body) {
 # Running programs (git, docker)
 # ---------------------------------------------------------------------------
 
+# Native programs (git, docker) print progress on stderr. Windows PowerShell 5.1
+# can turn that into errors when $ErrorActionPreference is 'Stop', so programs
+# always run with 'Continue' and success is judged by the exit code only.
+
+# Run a program, showing its output. Returns its exit code.
+function Invoke-NativeCode {
+    param([string]$File, [string[]]$Arguments)
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $File @Arguments | Out-Host } finally { $ErrorActionPreference = $old }
+    return $LASTEXITCODE
+}
+
 # Run a program, showing its output. Throws if it fails.
 function Invoke-Native {
     param([string]$File, [string[]]$Arguments, [string]$ErrorMessage = '')
-    & $File @Arguments | Out-Host
-    if ($LASTEXITCODE -ne 0) {
+    $code = Invoke-NativeCode -File $File -Arguments $Arguments
+    if ($code -ne 0) {
         if ($ErrorMessage) { Fail $ErrorMessage }
-        Fail "'$File $($Arguments -join ' ')' failed (exit code $LASTEXITCODE)."
+        Fail "'$File $($Arguments -join ' ')' failed (exit code $code)."
     }
 }
 
@@ -258,6 +271,7 @@ function Initialize-Dirs {
     if ((Test-IsLinux) -and (Get-NativeOutput -File 'id' -Arguments @('-u')) -eq '0') {
         $owner = (Get-EnvValue -Key 'DOCKER_USER_ID' -Default '1000') + ':' + (Get-EnvValue -Key 'DOCKER_GROUP_ID' -Default '1000')
         Invoke-Native -File 'chown' -Arguments @('-R', $owner, 'config', 'logs', 'backups')
+        if (Test-Path -LiteralPath $script:EnvFile) { Invoke-Native -File 'chown' -Arguments @($owner, $script:EnvFile) }
     }
 }
 
@@ -345,8 +359,8 @@ function Invoke-BuildImages {
     $jobs = Get-BuildJobs
     New-WowpsDockerfile -Jobs $jobs
     Write-Info "Building server images with $jobs parallel jobs. The first build takes 30-90 minutes..."
-    & docker @(@('compose', 'build') + $script:BuildServices) | Out-Host
-    return ($LASTEXITCODE -eq 0)
+    $code = Invoke-NativeCode -File 'docker' -Arguments (@('compose', 'build') + $script:BuildServices)
+    return ($code -eq 0)
 }
 
 function Invoke-DownloadClientData {

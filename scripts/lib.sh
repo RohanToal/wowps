@@ -196,6 +196,8 @@ ensure_dirs() {
         gid="$(env_get DOCKER_GROUP_ID "" 1000)"
         if [ "$(id -u)" -eq 0 ]; then
             chown -R "$uid:$gid" "$ROOT_DIR/config" "$ROOT_DIR/logs" "$ROOT_DIR/backups"
+            # So backups (which run as that user) can include .env.
+            if [ -f "$ENV_FILE" ]; then chown "$uid:$gid" "$ENV_FILE"; fi
         elif [ "$(id -u)" != "$uid" ]; then
             warn "The server runs as user ID $uid but you are $(id -u). If it can't write to config/ or logs/, run:
        sudo chown -R $uid:$gid config logs backups"

@@ -26,6 +26,8 @@ Invoke-Main {
     Write-Host 'Press Enter once to see the AC> prompt. Press Ctrl+C to leave (the server keeps running).'
     Write-Host ''
     # Ctrl+C is turned into "detach" so it can't shut the server down by accident.
+    # Called directly (not through a pipe) so the console stays interactive.
+    $ErrorActionPreference = 'Continue'
     & docker attach --detach-keys=ctrl-c ac-worldserver
     Write-Host ''
     Write-Ok 'Left the console. The server is still running.'
