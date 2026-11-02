@@ -343,8 +343,10 @@ wait_for_worldserver() {
             return 1
         fi
         if [ $((waited % 20)) -eq 0 ]; then
-            last="$(docker logs --tail 1 ac-worldserver 2>&1 | tr -d '\r' | cut -c1-100 || true)"
-            printf '   ... %s\n' "${last:-starting}"
+            # Strip color codes and carriage returns from the log line.
+            last="$(docker logs --tail 1 ac-worldserver 2>&1 | sed $'s/\x1b\\[[0-9;]*m//g' | tr -d '\r' | cut -c1-100 || true)"
+            last="${last#"${last%%[![:space:]]*}"}"
+            [ -z "$last" ] || printf '   ... %s\n' "$last"
         fi
         sleep 5
         waited=$((waited + 5))
@@ -365,13 +367,16 @@ print_connect_info() {
         echo "   and make it contain exactly:  set realmlist $address:$port"
     fi
     echo "   No account yet? See 'Create your game account' in the README."
-    echo "   Server console: docker attach ac-worldserver  (leave it with Ctrl+P then Ctrl+Q)"
+    echo "   GM console (create accounts etc.): ./console.sh"
 }
 
 lan_ip() {
     local ip=""
     if command -v ip >/dev/null 2>&1; then
         ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1)}' | head -n 1 || true)"
+    fi
+    if [ -z "$ip" ] && is_linux; then
+        ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
     fi
     if [ -z "$ip" ] && command -v ipconfig >/dev/null 2>&1; then
         ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"

@@ -46,7 +46,9 @@ if [ "$latest" -eq 1 ]; then
     env_set PLAYERBOTS_COMMIT "$new_pb" "$VERSIONS_FILE"
     echo "   AzerothCore:    ${AC_COMMIT:0:12} -> ${new_ac:0:12}"
     echo "   mod-playerbots: ${PLAYERBOTS_COMMIT:0:12} -> ${new_pb:0:12}"
-    warn "These newer commits have not been tested together by this repo."
+    if [ "$new_ac" != "$AC_COMMIT" ] || [ "$new_pb" != "$PLAYERBOTS_COMMIT" ]; then
+        warn "These newer commits have not been tested together by this repo."
+    fi
 fi
 
 read_versions

@@ -66,13 +66,8 @@ Software:
 
 1. Install **Docker Desktop** and **Git** (links above). Start Docker Desktop
    and wait until it says it is running.
-2. *(If your PC has 8 GB of RAM)* Docker Desktop on Windows gets half your RAM
-   by default, which can be too little for the build. Either close other
-   programs during setup, or set `BUILD_JOBS=2` in `.env` after step 5 creates
-   it.
-3. Open **PowerShell** (Start menu, type `PowerShell`).
-4. Download this repo and go into its folder. Pick a folder **without spaces**
-   in its path, e.g. `C:\wow`:
+2. Open **PowerShell** (Start menu, type `PowerShell`).
+3. Download this repo and go into its folder, e.g. `C:\wow`:
 
    ```powershell
    cd C:\
@@ -80,7 +75,7 @@ Software:
    cd wow
    ```
 
-5. Allow PowerShell to run the scripts (you only need to do this once per PC),
+4. Allow PowerShell to run the scripts (you only need to do this once per PC),
    then run setup:
 
    ```powershell
@@ -89,9 +84,10 @@ Software:
    ```
 
    Setup downloads the source and the map data (~1.2 GB) and builds the
-   server. Leave the window open until it says `Setup finished`.
+   server. It picks how many files to compile at once from the memory Docker
+   Desktop has. Leave the window open until it says `Setup finished`.
 
-6. Start the server:
+5. Start the server:
 
    ```powershell
    .\start.ps1
@@ -404,9 +400,10 @@ delete the old database (all accounts and characters!) with
 
 **Windows: "running scripts is disabled on this system"**: run
 `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned` once
-(see install step 5).
+(see Windows install step 4).
 
-Still stuck? `logs/Server.log` and `logs/DBErrors.log` have details. The
+Still stuck? `logs/Server.log`, `logs/Errors.log` and `logs/Playerbots.log`
+have details. The
 [Playerbots troubleshooting page](https://github.com/mod-playerbots/mod-playerbots/wiki/Troubleshooting)
 and their Discord are good places to ask.
 

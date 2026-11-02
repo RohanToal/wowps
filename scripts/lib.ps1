@@ -404,9 +404,11 @@ function Wait-Worldserver([int]$TimeoutSeconds = 1800) {
         }
         if ($waited % 20 -eq 0) {
             $last = Get-NativeOutput -File 'docker' -Arguments @('logs', '--tail', '1', 'ac-worldserver')
+            # Strip color codes from the log line.
+            $last = $last -replace "$([char]27)\[[0-9;]*m", ''
             if ($last.Length -gt 100) { $last = $last.Substring(0, 100) }
-            if (-not $last) { $last = 'starting' }
-            Write-Host "   ... $last"
+            $last = $last.Trim()
+            if ($last) { Write-Host "   ... $last" }
         }
         Start-Sleep -Seconds 5
         $waited += 5
@@ -424,7 +426,7 @@ function Write-ConnectInfo {
     Write-Host '   In your WoW 3.3.5a folder, open Data\<your language, e.g. enUS>\realmlist.wtf'
     Write-Host "   and make it contain exactly:  set realmlist $realmlist"
     Write-Host "   No account yet? See 'Create your game account' in the README."
-    Write-Host '   Server console: docker attach ac-worldserver  (leave it with Ctrl+P then Ctrl+Q)'
+    Write-Host '   GM console (create accounts etc.): .\console.ps1'
 }
 
 function Get-LanIp {

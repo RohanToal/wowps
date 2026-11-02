@@ -48,7 +48,9 @@ Invoke-Main {
         Set-EnvValue -Key 'PLAYERBOTS_COMMIT' -Value $newPb -File $script:VersionsFile
         Write-Host "   AzerothCore:    $(Get-Short $v['AC_COMMIT']) -> $(Get-Short $newAc)"
         Write-Host "   mod-playerbots: $(Get-Short $v['PLAYERBOTS_COMMIT']) -> $(Get-Short $newPb)"
-        Write-Warn 'These newer commits have not been tested together by this repo.'
+        if ($newAc -ne $v['AC_COMMIT'] -or $newPb -ne $v['PLAYERBOTS_COMMIT']) {
+            Write-Warn 'These newer commits have not been tested together by this repo.'
+        }
     }
 
     $v = Read-Versions
