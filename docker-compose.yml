@@ -1,0 +1,209 @@
+# WoW 3.3.5a personal server: AzerothCore (Playerbot fork) + mod-playerbots.
+#
+# You normally don't run `docker compose` yourself. Use the scripts in the repo
+# root (setup / start / stop / backup / restore / update). All settings come
+# from `.env`.
+#
+# Images are built from ./source (the pinned AzerothCore checkout that setup
+# creates) using AzerothCore's own Dockerfile targets. setup and update
+# generate `Dockerfile.wowps` from upstream's Dockerfile, changing only how many
+# compile jobs run at once.
+#
+# To change something in this file without editing it, create a
+# `docker-compose.override.yml` next to it (git ignores that file).
+
+name: wowps
+
+x-build: &build
+  context: ./source/azerothcore-wotlk
+  dockerfile: apps/docker/Dockerfile.wowps
+  args:
+    USER_ID: ${DOCKER_USER_ID:-1000}
+    GROUP_ID: ${DOCKER_GROUP_ID:-1000}
+    DOCKER_USER: acore
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-db-info: &db-info
+  AC_LOGIN_DATABASE_INFO: "ac-database;3306;root;${DB_ROOT_PASSWORD};acore_auth"
+  AC_WORLD_DATABASE_INFO: "ac-database;3306;root;${DB_ROOT_PASSWORD};acore_world"
+  AC_CHARACTER_DATABASE_INFO: "ac-database;3306;root;${DB_ROOT_PASSWORD};acore_characters"
+  AC_PLAYERBOTS_DATABASE_INFO: "ac-database;3306;root;${DB_ROOT_PASSWORD};acore_playerbots"
+
+services:
+  # MySQL. Data lives in the `ac-database` Docker volume. The port is published
+  # on 127.0.0.1 only, so a DB tool (HeidiSQL, DBeaver...) works from this PC
+  # but nobody on your network can reach the database.
+  ac-database:
+    container_name: ac-database
+    image: mysql:8.4
+    restart: unless-stopped
+    networks: [ac-network]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is not set. Run setup first.}
+      TZ: ${TZ:-Etc/UTC}
+    ports:
+      - "127.0.0.1:${DB_PORT:-3306}:3306"
+    volumes:
+      - ac-database:/var/lib/mysql
+    healthcheck:
+      # Uses TCP on purpose: during first-time init MySQL runs a temporary
+      # socket-only server, which must not count as "ready".
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysql -h 127.0.0.1 -uroot -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+      start_period: 30s
+    logging: *logging
+
+  # Creates the databases on first run and applies SQL updates (core + module)
+  # every time the server starts. Exits when done.
+  ac-db-import:
+    container_name: ac-db-import
+    image: wowps-ac-db-import:local
+    build:
+      <<: *build
+      target: db-import
+    networks: [ac-network]
+    environment:
+      <<: *db-info
+      AC_DATA_DIR: /azerothcore/env/dist/data
+      AC_LOGS_DIR: /azerothcore/env/dist/logs
+    volumes:
+      - ./config:/azerothcore/env/dist/etc
+      - ./logs:/azerothcore/env/dist/logs
+    depends_on:
+      ac-database:
+        condition: service_healthy
+
+  # Downloads the server map data (dbc, maps, vmaps, mmaps) into the
+  # `ac-client-data` volume. The data version is the one the pinned AzerothCore
+  # commit asks for. If that version is already there, this exits right away.
+  ac-client-data-init:
+    container_name: ac-client-data-init
+    image: wowps-ac-client-data:local
+    build:
+      <<: *build
+      target: client-data
+    volumes:
+      - ac-client-data:/azerothcore/env/dist/data
+
+  # Writes REALM_NAME / REALM_ADDRESS / WORLD_PORT from .env into the realm list
+  # on every start, so changing .env and restarting is all you need.
+  ac-realmlist:
+    container_name: ac-realmlist
+    image: mysql:8.4
+    networks: [ac-network]
+    entrypoint: ["bash", "/wowps/realmlist.sh"]
+    environment:
+      MYSQL_PWD: ${DB_ROOT_PASSWORD}
+      REALM_NAME: ${REALM_NAME:-AzerothCore Playerbots}
+      REALM_ADDRESS: ${REALM_ADDRESS:-127.0.0.1}
+      REALM_PORT: ${WORLD_PORT:-8085}
+    volumes:
+      - ./docker/realmlist.sh:/wowps/realmlist.sh:ro
+    depends_on:
+      ac-db-import:
+        condition: service_completed_successfully
+
+  ac-authserver:
+    container_name: ac-authserver
+    image: wowps-ac-authserver:local
+    build:
+      <<: *build
+      target: authserver
+    networks: [ac-network]
+    tty: true
+    restart: unless-stopped
+    environment:
+      AC_LOGIN_DATABASE_INFO: "ac-database;3306;root;${DB_ROOT_PASSWORD};acore_auth"
+      AC_LOGS_DIR: /azerothcore/env/dist/logs
+      AC_TEMP_DIR: /azerothcore/env/dist/temp
+      TZ: ${TZ:-Etc/UTC}
+    ports:
+      - "${AUTH_PORT:-3724}:3724"
+    volumes:
+      - ./config:/azerothcore/env/dist/etc
+      - ./logs:/azerothcore/env/dist/logs
+    depends_on:
+      ac-realmlist:
+        condition: service_completed_successfully
+    logging: *logging
+
+  ac-worldserver:
+    container_name: ac-worldserver
+    image: wowps-ac-worldserver:local
+    build:
+      <<: *build
+      target: worldserver
+    networks: [ac-network]
+    # Keeps the server console open, so `docker attach ac-worldserver` works.
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    # Saving hundreds of bots takes time. Don't kill the server early.
+    stop_grace_period: 3m
+    # Every line of .env is passed in, so any worldserver.conf or
+    # playerbots.conf option can be set there as AC_<OPTION_NAME>.
+    # See "Changing other server settings" in the README.
+    env_file: .env
+    environment:
+      <<: *db-info
+      AC_DATA_DIR: /azerothcore/env/dist/data
+      AC_LOGS_DIR: /azerothcore/env/dist/logs
+      TZ: ${TZ:-Etc/UTC}
+      # Bot settings from .env (see .env.example for what they mean).
+      AC_PLAYERBOTS_RANDOM_BOT_AUTOLOGIN: ${BOTS_ENABLED:-1}
+      AC_PLAYERBOTS_MIN_RANDOM_BOTS: ${BOTS_MIN:-100}
+      AC_PLAYERBOTS_MAX_RANDOM_BOTS: ${BOTS_MAX:-200}
+      AC_PLAYERBOTS_RANDOM_BOT_MIN_LEVEL: ${BOTS_MIN_LEVEL:-1}
+      AC_PLAYERBOTS_RANDOM_BOT_MAX_LEVEL: ${BOTS_MAX_LEVEL:-80}
+      AC_PLAYERBOTS_MAX_ADDED_BOTS: ${BOTS_PER_PLAYER:-40}
+      AC_PLAYERBOTS_DISABLED_WITHOUT_REAL_PLAYER: ${BOTS_ONLY_WITH_PLAYERS:-0}
+    ports:
+      - "${WORLD_PORT:-8085}:8085"
+    volumes:
+      - ./config:/azerothcore/env/dist/etc
+      - ./logs:/azerothcore/env/dist/logs
+      - ac-client-data:/azerothcore/env/dist/data:ro
+      # The worldserver creates and updates the acore_playerbots database by
+      # itself, using the SQL files that ship with the module.
+      - ./source/azerothcore-wotlk/modules:/azerothcore/modules:ro
+    depends_on:
+      ac-realmlist:
+        condition: service_completed_successfully
+      ac-client-data-init:
+        condition: service_completed_successfully
+    logging: *logging
+
+  # Backup / restore helper. Only runs when the scripts call it.
+  ac-db-tools:
+    image: mysql:8.4
+    profiles: [tools]
+    networks: [ac-network]
+    user: "${DOCKER_USER_ID:-1000}:${DOCKER_GROUP_ID:-1000}"
+    entrypoint: ["bash", "/wowps/db-tools.sh"]
+    environment:
+      MYSQL_PWD: ${DB_ROOT_PASSWORD}
+      BACKUP_KEEP: ${BACKUP_KEEP:-10}
+      TZ: ${TZ:-Etc/UTC}
+      HOME: /tmp
+    volumes:
+      - ./docker/db-tools.sh:/wowps/db-tools.sh:ro
+      - ./backups:/backups
+      - ./config:/wowps/config:ro
+      - ./.env:/wowps/.env:ro
+    depends_on:
+      ac-database:
+        condition: service_healthy
+
+volumes:
+  ac-database:
+  ac-client-data:
+
+networks:
+  ac-network:
